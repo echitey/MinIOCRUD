@@ -1,5 +1,6 @@
 ﻿using Minio;
 using Minio.DataModel.Args;
+using System.Runtime;
 
 namespace MinIOCRUD.Services
 {
@@ -7,20 +8,29 @@ namespace MinIOCRUD.Services
     {
 
         private readonly IMinioClient _client;
+        private readonly IMinioClient _publicClient;
         private readonly string _defaultBucket;
-
+        private readonly IConfiguration _config;
 
         public MinioService(IConfiguration config)
         {
-            var endpoint = config["Minio:Endpoint"];
+            var internalEndpoint = config["Minio:Endpoint"];
+            var publicEndpoint = config["Minio:PublicEndpoint"];
             var accessKey = config["Minio:AccessKey"];
             var secretKey = config["Minio:SecretKey"];
             var secure = bool.Parse(config["Minio:Secure"] ?? "false");
             _defaultBucket = config["Minio:Bucket"] ?? "files";
+            _config = config;
 
 
             _client = new MinioClient()
-            .WithEndpoint(endpoint)
+            .WithEndpoint(internalEndpoint)
+            .WithCredentials(accessKey, secretKey)
+            .WithSSL(secure)
+            .Build();
+
+            _publicClient = new MinioClient()
+            .WithEndpoint(publicEndpoint)
             .WithCredentials(accessKey, secretKey)
             .WithSSL(secure)
             .Build();
@@ -40,11 +50,17 @@ namespace MinIOCRUD.Services
 
         public async Task<Uri> GetPresignedGetObjectUrlAsync(string bucket, string objectKey, TimeSpan expiry)
         {
-            var url = await _client.PresignedGetObjectAsync(new PresignedGetObjectArgs()
+            var url = await _publicClient.PresignedGetObjectAsync(new PresignedGetObjectArgs()
                 .WithBucket(bucket)
                 .WithObject(objectKey)
                 .WithExpiry((int)expiry.TotalSeconds));
-            return new Uri(url);
+
+            var publicUrl = url.Replace(_config["Minio:Endpoint"]!, _config["Minio:PublicEndpoint"]);
+
+            Console.WriteLine($"Generated public URL: {publicUrl}");
+            Console.WriteLine($"Original URL: {url}");
+
+            return new Uri(publicUrl);
         }
 
         public async Task PutObjectAsync(string bucket, string objectKey, Stream data, string contentType)
@@ -62,7 +78,7 @@ namespace MinIOCRUD.Services
         {
             await EnsureBucketExistsAsync(bucket);
 
-            var url = await _client.PresignedPutObjectAsync(new PresignedPutObjectArgs()
+            var url = await _publicClient.PresignedPutObjectAsync(new PresignedPutObjectArgs()
                 .WithBucket(bucket)
                 .WithObject(objectKey)
                 .WithExpiry((int)expiry.TotalSeconds));
