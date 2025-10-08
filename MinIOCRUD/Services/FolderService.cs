@@ -40,6 +40,37 @@ namespace MinIOCRUD.Services
                .FirstOrDefaultAsync(f => f.Id == id);
         }
 
+        public async Task<FolderDto?> GetFolderDtoWithBreadcrumbsAsync(Guid id)
+        {
+            var folder = await _db.Folders
+               .Include(f => f.SubFolders)
+               .Include(f => f.Files)
+               .Include(f => f.Parent)
+               .FirstOrDefaultAsync(f => f.Id == id);
+
+            if (folder == null)
+                throw new Exception("Folder not found");
+
+            var breadcrumb = new List<BreadcrumbItemDto>();
+            var current = folder;
+
+            while (current != null)
+            {
+                breadcrumb.Insert(0, new BreadcrumbItemDto
+                {
+                    Id = current.Id,
+                    Name = current.Name
+                });
+
+                if (current.ParentId == null)
+                    break;
+
+                current = await _db.Folders.FirstOrDefaultAsync(f => f.Id == current.ParentId);
+            }
+
+            return folder.ToDtoWithBreadcrumb(breadcrumb);
+        }
+
         // Get root folders with subfolders and files
         public async Task<(List<FolderDto>, List<FileRecordDto>)> GetRootFoldersAsync()
         {
@@ -113,5 +144,6 @@ namespace MinIOCRUD.Services
             _db.Folders.Remove(folder);
             await _db.SaveChangesAsync();
         }
+
     }
 }

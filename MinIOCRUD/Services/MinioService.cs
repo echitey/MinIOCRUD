@@ -55,10 +55,10 @@ namespace MinIOCRUD.Services
                 .WithObject(objectKey)
                 .WithExpiry((int)expiry.TotalSeconds));
 
-            var publicUrl = url.Replace(_config["Minio:Endpoint"]!, _config["Minio:PublicEndpoint"]);
+            var internalEndpoint = _config["Minio:Endpoint"] ?? "mimo:9000";
+            var externalEndpoint = _config["Minio:PublicEndpoint"] ?? "localhost:9000";
 
-            Console.WriteLine($"Generated public URL: {publicUrl}");
-            Console.WriteLine($"Original URL: {url}");
+            var publicUrl = url.Replace(internalEndpoint, externalEndpoint);
 
             return new Uri(publicUrl);
         }

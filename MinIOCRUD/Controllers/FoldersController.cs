@@ -34,12 +34,12 @@ namespace MinIOCRUD.Controllers
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> GetFolder(Guid id)
         {
-            var folder = await _folderService.GetFolderAsync(id);
+            var folder = await _folderService.GetFolderDtoWithBreadcrumbsAsync(id);
 
             if (folder == null)
                 return NotFound();
 
-            return Ok(folder.ToDto());
+            return Ok(folder);
         }
 
         [HttpDelete("{id:guid}")]

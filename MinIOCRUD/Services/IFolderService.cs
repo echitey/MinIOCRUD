@@ -8,6 +8,7 @@ namespace MinIOCRUD.Services
         Task<Folder> CreateFolderAsync(Folder folder);
         Task DeleteFolderAsync(Guid folderId);
         Task<Folder?> GetFolderAsync(Guid id);
+        Task<FolderDto?> GetFolderDtoWithBreadcrumbsAsync(Guid id);
         Task<(List<FolderDto>, List<FileRecordDto>)> GetRootFoldersAsync();
     }
 }
