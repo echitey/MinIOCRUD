@@ -14,7 +14,7 @@ namespace MinIOCRUD.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class FilesController : ControllerBase
+    public class FilesController : BaseApiController
     {
         private readonly IFileService _fileService;
 
@@ -28,28 +28,40 @@ namespace MinIOCRUD.Controllers
         public async Task<IActionResult> Upload([FromForm] FileUploadRequest request, Guid? folderId = null)
         {
             var result = await _fileService.UploadAsync(request, folderId);
-            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+
+            if (result == null)
+            {
+                return ErrorResponse("File upload failed", 500);
+            }
+            return CreatedResponse(result);
         }
 
         [HttpGet]
         public async Task<IActionResult> List([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
         {
             var files = await _fileService.ListAsync(page, pageSize);
-            return Ok(files);
+            return OkResponse(files, "Files List");
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
             var result = await _fileService.GetByIdAsync(id);
-            return result == null ? NotFound() : Ok(result);
+
+            return result == null?
+                ErrorResponse("File not found", 404)
+                : OkResponse(result);
         }
 
         [HttpGet("{id}/download")]
         public async Task<IActionResult> GetDownloadUrl(Guid id)
         {
             var url = await _fileService.GetDownloadUrlAsync(id);
-            return Redirect(url);
+            if (string.IsNullOrEmpty(url))
+            {
+                return ErrorResponse("Could not generate download URL");
+            }
+            return OkResponse(new DownloadUrlResponse(url), "File downlad url");
         }
 
         [HttpDelete("{id}")]
@@ -77,14 +89,24 @@ namespace MinIOCRUD.Controllers
         public async Task<IActionResult> GetPresignedUploadUrl([FromBody] PresignUploadRequest request)
         {
             var result = await _fileService.GetPresignedUploadUrlAsync(request);
-            return Ok(result);
+            if (result == null)
+            {
+                return ErrorResponse("Could not generate presigned upload URL");
+            }
+
+            return OkResponse(result);
         }
 
         [HttpPost("{id}/confirm")]
         public async Task<IActionResult> ConfirmUpload(Guid id)
         {
             var result = await _fileService.ConfirmUploadAsync(id);
-            return Ok(result);
+            if (result == null)
+            {
+                return ErrorResponse("Could not confirm upload");
+            }
+
+            return OkResponse(result);
         }
     }
 }

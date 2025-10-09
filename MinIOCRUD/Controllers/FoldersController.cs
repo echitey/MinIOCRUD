@@ -10,7 +10,7 @@ namespace MinIOCRUD.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class FoldersController : ControllerBase
+    public class FoldersController : BaseApiController
     {
         private readonly AppDbContext _db;
         private readonly IFolderService _folderService;
@@ -28,7 +28,10 @@ namespace MinIOCRUD.Controllers
             
             await _folderService.CreateFolderAsync(folder);
 
-            return CreatedAtAction(nameof(GetFolder), new { id = folder.Id }, folder.ToDto());
+            if(folder.Id == Guid.Empty)
+                return ErrorResponse("Folder creation failed", 400);
+
+            return CreatedResponse(folder.ToDto());
         }
 
         [HttpGet("{id:guid}")]
@@ -37,9 +40,9 @@ namespace MinIOCRUD.Controllers
             var folder = await _folderService.GetFolderDtoWithBreadcrumbsAsync(id);
 
             if (folder == null)
-                return NotFound();
+                return ErrorResponse("File not found", 404);
 
-            return Ok(folder);
+            return OkResponse(folder);
         }
 
         [HttpDelete("{id:guid}")]
@@ -52,7 +55,7 @@ namespace MinIOCRUD.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(new { error = ex.Message });
+                return ErrorResponse("Error while deleting the file");
             }
         }
 
@@ -61,7 +64,7 @@ namespace MinIOCRUD.Controllers
         {
             var (folders, files) = await _folderService.GetRootFoldersAsync();
 
-            return Ok(new { folders, files });
+            return OkResponse(new { folders, files });
         }
     }
 }
