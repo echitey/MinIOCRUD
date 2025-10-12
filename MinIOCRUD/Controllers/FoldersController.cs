@@ -31,7 +31,7 @@ namespace MinIOCRUD.Controllers
             if(folder.Id == Guid.Empty)
                 return ErrorResponse("Folder creation failed", 400);
 
-            return CreatedResponse(folder.ToDto());
+            return CreatedResponse(folder.ToDtoWithBreadcrumb(new List<Dtos.BreadcrumbItemDto>()));
         }
 
         [HttpGet("{id:guid}")]

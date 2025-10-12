@@ -82,7 +82,7 @@ namespace MinIOCRUD.Services
                 .Where(f => f.FolderId == null)
                 .ToListAsync();
 
-            var result = roots.Select(f => f.ToDto()).ToList();
+            var result = roots.Select(f => f.ToDtoWithBreadcrumb(new List<BreadcrumbItemDto>())).ToList();
             var files = rootfiles.Select(fr => fr.ToDto()).ToList();
 
             return (result, files);
@@ -91,7 +91,8 @@ namespace MinIOCRUD.Services
         // Delete folder recursively including files
         public async Task DeleteFolderAsync(Guid folderId)
         {
-            var _bucketName = _config.GetValue<string>("Minio:Bucket") ?? "files";
+            //var _bucketName = _config.GetValue<string>("Minio:Bucket") ?? "files";
+            var _bucketName = _config?.GetSection("Minio:Bucket")?.Value ?? "files";
 
             using var transaction = await _db.Database.BeginTransactionAsync();
 
