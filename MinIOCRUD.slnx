@@ -2,5 +2,6 @@
   <Project Path="docker-compose.dcproj">
     <Build />
   </Project>
+  <Project Path="MinIOCRUD.Tests/MinIOCRUD.Tests.csproj" Id="5ce4a026-8606-446c-8a39-39a8ffe698de" />
   <Project Path="MinIOCRUD/MinIOCRUD.csproj" />
 </Solution>
