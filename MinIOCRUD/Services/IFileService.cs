@@ -2,17 +2,20 @@
 
 namespace MinIOCRUD.Services
 {
+    /// <summary>
+    /// Provides CRUD and presigned URL management for file records stored in MinIO.
+    /// </summary>
     public interface IFileService
     {
-        Task<FileRecordDto> UploadAsync(FileUploadRequest request, Guid? folderId);
-        Task<IEnumerable<FileRecordDto>> ListAsync(int page, int pageSize);
-        Task<FileRecordDto?> GetByIdAsync(Guid id);
-        Task<string> GetDownloadUrlAsync(Guid id);
-        Task SoftDeleteAsync(Guid id);
-        Task HardDeleteAsync(Guid id);
-        Task HardDeleteBulkAsync(HardDeleteRequest request);
-        Task<PresignUploadResponse> GetPresignedUploadUrlAsync(PresignUploadRequest request);
-        Task<FileRecordDto> ConfirmUploadAsync(Guid id);
-        Task DeleteFilesInFolderAsync(Guid folderId);
+        Task<FileRecordDto> UploadAsync(FileUploadRequest request, Guid? folderId, CancellationToken cancellationToken = default);
+        Task<IEnumerable<FileRecordDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+        Task<FileRecordDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+        Task<string> GetDownloadUrlAsync(Guid id, CancellationToken cancellationToken = default);
+        Task SoftDeleteAsync(Guid id, CancellationToken cancellationToken = default);
+        Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
+        Task HardDeleteBulkAsync(HardDeleteRequest request, CancellationToken cancellationToken = default);
+        Task<PresignUploadResponse> GetPresignedUploadUrlAsync(PresignUploadRequest request, CancellationToken cancellationToken = default);
+        Task<FileRecordDto> ConfirmUploadAsync(Guid id, CancellationToken cancellationToken = default);
+        Task DeleteFilesInFolderAsync(Guid folderId, CancellationToken cancellationToken = default);
     }
 }

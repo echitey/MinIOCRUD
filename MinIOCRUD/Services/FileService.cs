@@ -7,11 +7,16 @@ using MinIOCRUD.Utils;
 
 namespace MinIOCRUD.Services
 {
+
+    /// <summary>
+    /// Handles file upload, download, deletion, and presigned URL operations backed by MinIO.
+    /// </summary>
     public class FileService : IFileService
     {
         private readonly AppDbContext _db;
         private readonly IMinioService _minio;
         private readonly ILogger<FileService> _logger;
+        private readonly string _defaultBucket = "files";
 
         public FileService(AppDbContext db, IMinioService minio, ILogger<FileService> logger)
         {
@@ -20,40 +25,36 @@ namespace MinIOCRUD.Services
             _logger = logger;
         }
 
-        public async Task<FileRecordDto> UploadAsync(FileUploadRequest request, Guid? folderId)
-        {
-            if (folderId.HasValue)
-            {
-                var folder = await _db.Folders.FindAsync(folderId);
-                if (folder == null) throw new KeyNotFoundException("Folder not found");
-            }
+        #region Upload
 
-            var file = request.File;
-            if (file == null || file.Length == 0) throw new InvalidOperationException("No file provided.");
+        public async Task<FileRecordDto> UploadAsync(FileUploadRequest request, Guid? folderId, CancellationToken cancellationToken = default)
+        {
+            if (request.File == null || request.File.Length == 0)
+                throw new InvalidOperationException("No file provided.");
+
+            if (folderId.HasValue && !await FolderExistsAsync(folderId.Value, cancellationToken))
+                throw new KeyNotFoundException("Folder not found.");
 
             var id = Guid.NewGuid();
-            var bucket = "files";
-            var objectKey = $"{DateTime.UtcNow:yyyyMMdd}/{id}_{file.FileName}";
+            var sanitizedName = request.File.FileName.SanitizeFileName();
+            var objectKey = $"{DateTime.UtcNow:yyyyMMdd}/{id}_{sanitizedName}";
 
             using var ms = new MemoryStream();
-            await file.CopyToAsync(ms);
+            await request.File.CopyToAsync(ms, cancellationToken);
             ms.Position = 0;
 
-            await _minio.PutObjectAsync(bucket, objectKey, ms, file.ContentType);
+            await _minio.PutObjectAsync(_defaultBucket, objectKey, ms, request.File.ContentType, cancellationToken);
 
-            var fileType = FileTypeHelper.ToSimpleFileType(file.ContentType, file.FileName);
-            var friendlyType = Constants.ToFriendlyName(fileType);
-            var safeContentType = FileTypeHelper.GetSafeContentType(file.ContentType, file.FileName);
-
+            var fileType = FileTypeHelper.ToSimpleFileType(request.File.ContentType, sanitizedName);
             var record = new FileRecord
             {
                 Id = id,
-                FileName = file.FileName,
-                ContentType = file.ContentType,
-                SafeContentType = safeContentType,
-                FriendlyContentType = friendlyType,
-                Size = file.Length,
-                Bucket = bucket,
+                FileName = sanitizedName,
+                ContentType = request.File.ContentType,
+                SafeContentType = FileTypeHelper.GetSafeContentType(request.File.ContentType, sanitizedName),
+                FriendlyContentType = Constants.ToFriendlyName(fileType),
+                Size = request.File.Length,
+                Bucket = _defaultBucket,
                 ObjectKey = objectKey,
                 UploaderId = "anonymous",
                 Version = 1,
@@ -64,12 +65,16 @@ namespace MinIOCRUD.Services
             };
 
             _db.Files.Add(record);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
 
             return record.ToDto();
         }
 
-        public async Task<IEnumerable<FileRecordDto>> ListAsync(int page, int pageSize)
+        #endregion
+
+        #region Queries
+
+        public async Task<IEnumerable<FileRecordDto>> ListAsync(int page, int pageSize, CancellationToken cancellationToken = default)
         {
             var items = await _db.Files
                 .Where(f => !f.IsDeleted)
@@ -77,59 +82,56 @@ namespace MinIOCRUD.Services
                 .OrderByDescending(f => f.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             return items.ToDtoList();
         }
 
-        public async Task<FileRecordDto?> GetByIdAsync(Guid id)
+        public async Task<FileRecordDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var f = await _db.Files
+            var file = await _db.Files
                 .Include(f => f.Folder)
-                .FirstOrDefaultAsync(f => f.Id == id);
+                .FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
-            return f?.ToDto();
+            return file?.ToDto();
         }
 
-        public async Task<string> GetDownloadUrlAsync(Guid id)
+        public async Task<string> GetDownloadUrlAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var f = await _db.Files.FindAsync(id);
-            if (f == null) throw new KeyNotFoundException("File not found");
+            var file = await _db.Files.FindAsync([id], cancellationToken);
+            if (file == null) throw new KeyNotFoundException("File not found");
 
-            var url = await _minio.GetPresignedGetObjectUrlAsync(f.Bucket, f.ObjectKey, TimeSpan.FromMinutes(15));
+            var url = await _minio.GetPresignedGetObjectUrlAsync(file.Bucket, file.ObjectKey, TimeSpan.FromMinutes(15));
             return url.ToString();
         }
 
-        public async Task SoftDeleteAsync(Guid id)
-        {
-            var f = await _db.Files.FindAsync(id);
-            if (f == null) throw new KeyNotFoundException("File not found");
+        #endregion
 
-            f.IsDeleted = true;
-            f.UpdatedAt = DateTimeOffset.UtcNow;
-            await _db.SaveChangesAsync();
-        }
 
-        public async Task HardDeleteAsync(Guid id)
+        #region Delete operations
+
+        public async Task SoftDeleteAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var file = await _db.Files.FindAsync(id);
+            var file = await _db.Files.FindAsync([id], cancellationToken);
             if (file == null) throw new KeyNotFoundException("File not found");
 
-            try
-            {
-                await _minio.DeleteObjectAsync(file.Bucket, file.ObjectKey);
-                _db.Files.Remove(file);
-                await _db.SaveChangesAsync();
-                _logger.LogInformation("Hard deleted file {FileName} ({Id})", file.FileName, file.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Hard delete failed for {FileName} ({Id})", file.FileName, file.Id);
-                throw;
-            }
+            file.IsDeleted = true;
+            file.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await _db.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task HardDeleteBulkAsync(HardDeleteRequest request)
+        public async Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var file = await _db.Files.FindAsync([id], cancellationToken);
+            if (file == null) throw new KeyNotFoundException("File not found");
+
+            await SafeDeleteFromMinioAsync(file, cancellationToken);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task HardDeleteBulkAsync(HardDeleteRequest request, CancellationToken cancellationToken = default)
         {
             if (request == null || !request.Ids.Any())
                 throw new ArgumentException("No file IDs provided.");
@@ -137,40 +139,57 @@ namespace MinIOCRUD.Services
             if (!request.Force)
                 throw new InvalidOperationException("Force flag must be true to perform bulk hard delete.");
 
-            var files = await _db.Files.Where(f => request.Ids.Contains(f.Id)).ToListAsync();
+            var files = await _db.Files.Where(f => request.Ids.Contains(f.Id)).ToListAsync(cancellationToken);
             foreach (var file in files)
-            {
-                try
-                {
-                    await _minio.DeleteObjectAsync(file.Bucket, file.ObjectKey);
-                    _db.Files.Remove(file);
-                    _logger.LogInformation("Hard deleted file {FileName} ({Id})", file.FileName, file.Id);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete file {FileName} ({Id})", file.FileName, file.Id);
-                }
-            }
+                await SafeDeleteFromMinioAsync(file, cancellationToken);
 
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task<PresignUploadResponse> GetPresignedUploadUrlAsync(PresignUploadRequest request)
+        public async Task DeleteFilesInFolderAsync(Guid folderId, CancellationToken cancellationToken = default)
+        {
+            var files = await _db.Files.Where(f => f.FolderId == folderId).ToListAsync(cancellationToken);
+            foreach (var file in files)
+                await SafeDeleteFromMinioAsync(file, cancellationToken);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        private async Task SafeDeleteFromMinioAsync(FileRecord file, CancellationToken cancellationToken)
+        {
+            try
+            {
+
+                await _minio.DeleteObjectAsync(file.Bucket, file.ObjectKey, cancellationToken);
+                _db.Files.Remove(file);
+                _logger.LogInformation("Deleted file {FileName} ({Id})", file.FileName, file.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete file {FileName} ({Id})", file.FileName, file.Id);
+            }
+        }
+
+        #endregion
+
+
+        #region Presigned uploads
+
+        public async Task<PresignUploadResponse> GetPresignedUploadUrlAsync(PresignUploadRequest request, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(request.FileName))
                 throw new ArgumentException("FileName required.");
 
             var id = Guid.NewGuid();
-            var bucket = "files";
-            var objectKey = $"{DateTime.UtcNow:yyyyMMdd}/{id}_{request.FileName}";
+            var objectKey = $"{DateTime.UtcNow:yyyyMMdd}/{id}_{request.FileName.SanitizeFileName()}";
 
             var record = new FileRecord
             {
                 Id = id,
-                FileName = request.FileName,
+                FileName = request.FileName.SanitizeFileName(),
                 ContentType = request.ContentType,
                 Size = request.Size ?? 0,
-                Bucket = bucket,
+                Bucket = _defaultBucket,
                 ObjectKey = objectKey,
                 UploaderId = "anonymous",
                 Version = 1,
@@ -180,62 +199,53 @@ namespace MinIOCRUD.Services
             };
 
             _db.Files.Add(record);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(cancellationToken);
 
-            var url = await _minio.GetPresignedGetObjectUrlAsync(bucket, objectKey, TimeSpan.FromMinutes(15));
-
+            var url = await _minio.GetPresignedPutObjectUrlAsync(_defaultBucket, objectKey, TimeSpan.FromMinutes(15));
             return new PresignUploadResponse
             {
                 FileId = id,
                 UploadUrl = url.ToString(),
                 ObjectKey = objectKey,
-                Bucket = bucket
+                Bucket = _defaultBucket
             };
         }
 
-        public async Task<FileRecordDto> ConfirmUploadAsync(Guid id)
+        public async Task<FileRecordDto> ConfirmUploadAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            var record = await _db.Files.FindAsync(id);
+            var record = await _db.Files.FindAsync([id], cancellationToken);
             if (record == null) throw new KeyNotFoundException("File not found");
 
             try
             {
-                var (size, contentType) = await _minio.StatObjectAsync(record.Bucket, record.ObjectKey);
+                var (size, contentType) = await _minio.StatObjectAsync(record.Bucket, record.ObjectKey, cancellationToken);
                 record.Size = size;
                 record.ContentType = contentType ?? record.ContentType;
                 record.Status = "Uploaded";
-                record.UpdatedAt = DateTimeOffset.UtcNow;
-                await _db.SaveChangesAsync();
             }
             catch
             {
                 record.Status = "Failed";
-                record.UpdatedAt = DateTimeOffset.UtcNow;
-                await _db.SaveChangesAsync();
                 throw new InvalidOperationException("File not found in MinIO or upload failed.");
+            }
+            finally
+            {
+                record.UpdatedAt = DateTimeOffset.UtcNow;
+                await _db.SaveChangesAsync(cancellationToken);
             }
 
             return record.ToDto();
         }
 
-        public async Task DeleteFilesInFolderAsync(Guid folderId)
+        #endregion
+
+        #region Helpers
+
+        private async Task<bool> FolderExistsAsync(Guid folderId, CancellationToken cancellationToken)
         {
-            var files = await _db.Files.Where(f => f.FolderId == folderId).ToListAsync();
-
-            foreach (var file in files)
-            {
-                try
-                {
-                    await _minio.DeleteObjectAsync(file.Bucket, file.ObjectKey);
-                    _db.Files.Remove(file);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete file {FileName} in folder {FolderId}", file.FileName, folderId);
-                }
-            }
-
-            await _db.SaveChangesAsync();
+            return await _db.Folders.AnyAsync(f => f.Id == folderId, cancellationToken);
         }
+
+        #endregion
     }
 }

@@ -25,15 +25,16 @@ namespace MinIOCRUD.Controllers
 
         [HttpPost]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> Upload([FromForm] FileUploadRequest request, Guid? folderId = null)
+        public async Task<IActionResult> Upload(
+            [FromForm] FileUploadRequest request, 
+            Guid? folderId = null, 
+            CancellationToken cancellationToken = default)
         {
-            var result = await _fileService.UploadAsync(request, folderId);
+            var result = await _fileService.UploadAsync(request, folderId, cancellationToken);
 
-            if (result == null)
-            {
-                return ErrorResponse("File upload failed", 500);
-            }
-            return CreatedResponse(result);
+            return result == null
+                ? ErrorResponse("File upload failed", 500)
+                : CreatedResponse(result);
         }
 
         [HttpGet]
@@ -54,59 +55,54 @@ namespace MinIOCRUD.Controllers
         }
 
         [HttpGet("{id}/download")]
-        public async Task<IActionResult> GetDownloadUrl(Guid id)
+        public async Task<IActionResult> GetDownloadUrl(Guid id, CancellationToken cancellationToken = default)
         {
-            var url = await _fileService.GetDownloadUrlAsync(id);
-            if (string.IsNullOrEmpty(url))
-            {
-                return ErrorResponse("Could not generate download URL");
-            }
-            return OkResponse(new DownloadUrlResponse(url), "File downlad url");
+            var url = await _fileService.GetDownloadUrlAsync(id, cancellationToken);
+
+            return string.IsNullOrEmpty(url)
+                ? ErrorResponse("Could not generate download URL")
+                : OkResponse(new DownloadUrlResponse(url), "File download URL");
         }
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> SoftDelete(Guid id)
+        public async Task<IActionResult> SoftDelete(Guid id, CancellationToken cancellationToken = default)
         {
-            await _fileService.SoftDeleteAsync(id);
+            await _fileService.SoftDeleteAsync(id, cancellationToken);
             return NoContent();
         }
 
         [HttpDelete("{id}/hard")]
-        public async Task<IActionResult> HardDelete(Guid id)
+        public async Task<IActionResult> HardDelete(Guid id, CancellationToken cancellationToken = default)
         {
-            await _fileService.HardDeleteAsync(id);
+            await _fileService.HardDeleteAsync(id, cancellationToken);
             return NoContent();
         }
 
         [HttpPost("hard-delete")]
-        public async Task<IActionResult> HardDeleteBulk([FromBody] HardDeleteRequest request)
+        public async Task<IActionResult> HardDeleteBulk([FromBody] HardDeleteRequest request, CancellationToken cancellationToken = default)
         {
-            await _fileService.HardDeleteBulkAsync(request);
+            await _fileService.HardDeleteBulkAsync(request, cancellationToken);
             return NoContent();
         }
 
         [HttpPost("presign-upload")]
-        public async Task<IActionResult> GetPresignedUploadUrl([FromBody] PresignUploadRequest request)
+        public async Task<IActionResult> GetPresignedUploadUrl([FromBody] PresignUploadRequest request, CancellationToken cancellationToken = default)
         {
-            var result = await _fileService.GetPresignedUploadUrlAsync(request);
-            if (result == null)
-            {
-                return ErrorResponse("Could not generate presigned upload URL");
-            }
+            var result = await _fileService.GetPresignedUploadUrlAsync(request, cancellationToken);
 
-            return OkResponse(result);
+            return result == null
+                ? ErrorResponse("Could not generate presigned upload URL")
+                : OkResponse(result);
         }
 
         [HttpPost("{id}/confirm")]
-        public async Task<IActionResult> ConfirmUpload(Guid id)
+        public async Task<IActionResult> ConfirmUpload(Guid id, CancellationToken cancellationToken = default)
         {
-            var result = await _fileService.ConfirmUploadAsync(id);
-            if (result == null)
-            {
-                return ErrorResponse("Could not confirm upload");
-            }
+            var result = await _fileService.ConfirmUploadAsync(id, cancellationToken);
 
-            return OkResponse(result);
+            return result == null
+                ? ErrorResponse("Could not confirm upload")
+                : OkResponse(result);
         }
     }
 }

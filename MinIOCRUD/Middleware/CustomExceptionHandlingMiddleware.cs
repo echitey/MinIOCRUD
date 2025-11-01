@@ -4,6 +4,7 @@ using System.Text.Json;
 
 namespace MinIOCRUD.Middleware
 {
+
     public class CustomExceptionHandlingMiddleware
     {
         private readonly RequestDelegate _next;
@@ -23,15 +24,23 @@ namespace MinIOCRUD.Middleware
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unhandled exception occurred");
+                _logger.LogError(ex, "Unhandled exception occurred while processing the request");
 
-                context.Response.ContentType = "application/json";
-                context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.Clear();
+                    context.Response.ContentType = "application/json";
+                    context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
-                var response = ApiResponse<object>.FromException(ex, context.Response.StatusCode);
-                var json = JsonSerializer.Serialize(response);
+                    var response = ApiResponse<object>.FromException(ex, context.Response.StatusCode);
+                    var json = JsonSerializer.Serialize(response);
 
-                await context.Response.WriteAsync(json);
+                    await context.Response.WriteAsync(json);
+                }
+                else
+                {
+                    _logger.LogWarning("The response has already started; unable to write the error response.");
+                }
             }
         }
     }

@@ -24,25 +24,25 @@ namespace MinIOCRUD.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateFolder([FromQuery] string name, [FromQuery] Guid? parentId = null)
         {
+            if (string.IsNullOrWhiteSpace(name))
+                return ErrorResponse("Folder name is required", 400);
+
             var folder = new Folder { Name = name, ParentId = parentId };
-            
             await _folderService.CreateFolderAsync(folder);
 
-            if(folder.Id == Guid.Empty)
-                return ErrorResponse("Folder creation failed", 400);
-
-            return CreatedResponse(folder.ToDtoWithBreadcrumb(new List<Dtos.BreadcrumbItemDto>()));
+            return folder.Id == Guid.Empty
+                ? ErrorResponse("Folder creation failed", 400)
+                : CreatedResponse(folder.ToDtoWithBreadcrumb(new List<Dtos.BreadcrumbItemDto>()));
         }
 
         [HttpGet("{id:guid}")]
-        public async Task<IActionResult> GetFolder(Guid id)
+        public async Task<IActionResult> GetFolder(Guid id, CancellationToken cancellationToken = default)
         {
-            var folder = await _folderService.GetFolderDtoWithBreadcrumbsAsync(id);
+            var folder = await _folderService.GetFolderDtoWithBreadcrumbsAsync(id, cancellationToken);
 
-            if (folder == null)
-                return ErrorResponse("File not found", 404);
-
-            return OkResponse(folder);
+            return folder == null
+                ? ErrorResponse("Folder not found", 404)
+                : OkResponse(folder);
         }
 
         [HttpDelete("{id:guid}")]
@@ -53,16 +53,17 @@ namespace MinIOCRUD.Controllers
                 await _folderService.DeleteFolderAsync(id);
                 return NoContent();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                return ErrorResponse("Error while deleting the file");
+                // Logging handled at middleware level
+                return ErrorResponse("Error occurred while deleting the folder");
             }
         }
 
         [HttpGet("root")]
         public async Task<IActionResult> GetRootFolders()
         {
-            var (folders, files) = await _folderService.GetRootFoldersAsync();
+            var (folders, files) = await _folderService.GetRootContentsAsync();
 
             return OkResponse(new { folders, files });
         }

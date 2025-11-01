@@ -10,46 +10,64 @@ using System.Xml.Linq;
 
 namespace MinIOCRUD.Services
 {
+
+    /// <summary>
+    /// Handles folder operations: create, delete (recursive), retrieve folders and root contents.
+    /// </summary>
     public class FolderService : IFolderService
     {
         private readonly AppDbContext _db;
         private readonly IMinioService _minio;
-        private readonly IConfiguration _config;
+        private readonly ILogger<FolderService> _logger;
+        private readonly string _bucketName;
 
-        public FolderService(AppDbContext db, IMinioService minio, IConfiguration config)
+        public FolderService(AppDbContext db, IMinioService minio, IConfiguration config, ILogger<FolderService> logger)
         {
             _db = db;
             _minio = minio;
-            _config = config;
+            _logger = logger;
+            _bucketName = config.GetValue<string>("Minio:Bucket") ?? "files";
         }
 
+
+        #region Folder CRUD
+
+        /// <summary>
+        /// Creates a new folder in the database.
+        /// </summary>
         public async Task<Folder> CreateFolderAsync(Folder folder)
         {
             await _db.Folders.AddAsync(folder);
             await _db.SaveChangesAsync();
-
             return folder;
         }
 
-        public async Task<Folder?> GetFolderAsync(Guid id)
+        /// <summary>
+        /// Retrieves a folder by ID including its subfolders and files.
+        /// </summary>
+        public async Task<Folder?> GetFolderByIdAsync(Guid id)
         {
             return await _db.Folders
-               .Include(f => f.SubFolders)
-               .Include(f => f.Files)
-               .Include(f => f.Parent)
-               .FirstOrDefaultAsync(f => f.Id == id);
+                .Include(f => f.SubFolders)
+                .Include(f => f.Files)
+                .Include(f => f.Parent)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.Id == id);
         }
 
-        public async Task<FolderDto?> GetFolderDtoWithBreadcrumbsAsync(Guid id)
+        /// <summary>
+        /// Retrieves a folder DTO with its breadcrumb path.
+        /// </summary>
+        public async Task<FolderDto?> GetFolderDtoWithBreadcrumbsAsync(Guid id, CancellationToken cancellationToken = default)
         {
             var folder = await _db.Folders
-               .Include(f => f.SubFolders)
-               .Include(f => f.Files)
-               .Include(f => f.Parent)
-               .FirstOrDefaultAsync(f => f.Id == id);
+                .Include(f => f.SubFolders)
+                .Include(f => f.Files)
+                .Include(f => f.Parent)
+                .FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
 
             if (folder == null)
-                throw new Exception("Folder not found");
+                throw new KeyNotFoundException("Folder not found.");
 
             var breadcrumb = new List<BreadcrumbItemDto>();
             var current = folder;
@@ -62,89 +80,102 @@ namespace MinIOCRUD.Services
                     Name = current.Name
                 });
 
-                if (current.ParentId == null)
-                    break;
+                if (current.ParentId == null) break;
 
-                current = await _db.Folders.FirstOrDefaultAsync(f => f.Id == current.ParentId);
+                current = await _db.Folders.AsNoTracking()
+                    .FirstOrDefaultAsync(f => f.Id == current.ParentId, cancellationToken);
             }
 
             return folder.ToDtoWithBreadcrumb(breadcrumb);
         }
 
-        // Get root folders with subfolders and files
-        public async Task<(List<FolderDto>, List<FileRecordDto>)> GetRootFoldersAsync()
+        #endregion
+
+
+        #region Root contents
+
+        /// <summary>
+        /// Retrieves all root folders and root files (no parent).
+        /// </summary>
+        public async Task<(List<FolderDto>, List<FileRecordDto>)> GetRootContentsAsync()
         {
             var roots = await _db.Folders
                 .Where(f => f.ParentId == null)
+                .AsNoTracking()
                 .ToListAsync();
 
-            var rootfiles = await _db.Files
+            var rootFiles = await _db.Files
                 .Where(f => f.FolderId == null)
+                .AsNoTracking()
                 .ToListAsync();
 
-            var result = roots.Select(f => f.ToDtoWithBreadcrumb(new List<BreadcrumbItemDto>())).ToList();
-            var files = rootfiles.Select(fr => fr.ToDto()).ToList();
+            var folders = roots.Select(f => f.ToDtoWithBreadcrumb([])).ToList();
+            var files = rootFiles.Select(fr => fr.ToDto()).ToList();
 
-            return (result, files);
+            return (folders, files);
         }
 
-        // Delete folder recursively including files
-        public async Task DeleteFolderAsync(Guid folderId)
-        {
-            //var _bucketName = _config.GetValue<string>("Minio:Bucket") ?? "files";
-            var _bucketName = _config?.GetSection("Minio:Bucket")?.Value ?? "files";
+        #endregion
 
-            using var transaction = await _db.Database.BeginTransactionAsync();
+
+        #region Delete folder
+
+        /// <summary>
+        /// Deletes a folder and all its contents recursively.
+        /// </summary>
+        public async Task DeleteFolderAsync(Guid folderId, CancellationToken cancellationToken = default)
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
             try
             {
                 var folder = await _db.Folders
                     .Include(f => f.SubFolders)
                     .Include(f => f.Files)
-                    .FirstOrDefaultAsync(f => f.Id == folderId);
+                    .FirstOrDefaultAsync(f => f.Id == folderId, cancellationToken);
 
                 if (folder == null)
-                    throw new Exception("Folder not found.");
+                    throw new KeyNotFoundException("Folder not found.");
 
-                await DeleteFolderRecursive(folder, _bucketName);
+                await DeleteFolderRecursive(folder, cancellationToken);
 
-                await transaction.CommitAsync();
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
             }
-            catch
+            catch (Exception ex)
             {
-                await transaction.RollbackAsync();
+                await transaction.RollbackAsync(cancellationToken);
+                _logger.LogError(ex, "Failed to delete folder {FolderId}", folderId);
                 throw;
             }
         }
 
-        // Recursive deletion helper
-        private async Task DeleteFolderRecursive(Folder folder, string bucketName)
+        /// <summary>
+        /// Helper method for recursive folder deletion.
+        /// </summary>
+        private async Task DeleteFolderRecursive(Folder folder, CancellationToken cancellationToken)
         {
-            // Delete subfolders first
             foreach (var sub in folder.SubFolders.ToList())
-            {
-                await DeleteFolderRecursive(sub, bucketName);
-            }
+                await DeleteFolderRecursive(sub, cancellationToken);
 
-            // Delete files in MinIO
             foreach (var file in folder.Files.ToList())
             {
                 try
                 {
-                    await _minio.DeleteObjectAsync(bucketName, file.ObjectKey);
+                    await _minio.DeleteObjectAsync(_bucketName, file.ObjectKey, cancellationToken);
+                    _db.Files.Remove(file);
                 }
                 catch (Exception ex)
                 {
-                    // Log and continue, maybe file missing
-                    Console.WriteLine($"Failed to delete file {file.FileName}: {ex.Message}");
+                    _logger.LogWarning(ex, "Failed to delete file {FileName} in folder {FolderId}", file.FileName, folder.Id);
                 }
-
-                _db.Files.Remove(file);
             }
 
             _db.Folders.Remove(folder);
-            await _db.SaveChangesAsync();
         }
+
+        #endregion
+
 
     }
 }
