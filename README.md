@@ -691,7 +691,7 @@ Testing notes:
 
 - Tests use an InMemory EF Core provider for isolation.
 - Mocks (Moq) are used for `IMinioService`, `IConfiguration`, and `ILogger<T>`.
-- Tests follow Arrange–Act–Assert pattern and assert both DB state and MinIO interactions.
+- Tests follow Arrange-Act-Assert pattern and assert both DB state and MinIO interactions.
 
 Key test adjustments made during cleanup: 
 - `FolderService` tests now mock `GetValue` / indexer for configuration and supply a `Mock<ILogger<FolderService>>`.
