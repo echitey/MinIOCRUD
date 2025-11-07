@@ -1,4 +1,4 @@
-﻿namespace MinIOCRUD.Dtos
+﻿namespace MinIOCRUD.Dtos.Requests
 {
     public class HardDeleteRequest
     {

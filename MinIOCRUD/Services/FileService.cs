@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MinIOCRUD.Data;
-using MinIOCRUD.Dtos;
+using MinIOCRUD.Dtos.Requests;
+using MinIOCRUD.Dtos.Responses;
 using MinIOCRUD.Extensions;
 using MinIOCRUD.Models;
 using MinIOCRUD.Utils;

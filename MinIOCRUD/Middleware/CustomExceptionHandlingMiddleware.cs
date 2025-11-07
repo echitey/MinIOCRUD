@@ -1,4 +1,4 @@
-﻿using MinIOCRUD.Dtos;
+﻿using MinIOCRUD.Dtos.Responses;
 using System.Net;
 using System.Text.Json;
 

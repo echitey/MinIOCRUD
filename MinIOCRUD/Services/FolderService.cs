@@ -3,7 +3,7 @@ using Minio;
 using Minio.DataModel;
 using Minio.DataModel.Args;
 using MinIOCRUD.Data;
-using MinIOCRUD.Dtos;
+using MinIOCRUD.Dtos.Responses;
 using MinIOCRUD.Extensions;
 using MinIOCRUD.Models;
 using System.Xml.Linq;

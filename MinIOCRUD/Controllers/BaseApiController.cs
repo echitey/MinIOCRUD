@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using MinIOCRUD.Dtos;
+using MinIOCRUD.Dtos.Responses;
 
 namespace MinIOCRUD.Controllers
 {

@@ -1,4 +1,5 @@
-﻿using MinIOCRUD.Dtos;
+﻿using MinIOCRUD.Dtos.Requests;
+using MinIOCRUD.Dtos.Responses;
 
 namespace MinIOCRUD.Services
 {

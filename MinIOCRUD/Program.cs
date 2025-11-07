@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using MinIOCRUD.Data;
 using MinIOCRUD.Middleware;
 using MinIOCRUD.Services;
@@ -20,7 +21,20 @@ builder.Services.AddHostedService<FileCleanupService>();
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "MinIO Files CRUD API",
+        Version = "v1",
+        Description = "An API for managing files through MinIO and Postgres DB",
+        License = new OpenApiLicense
+        {
+            Name = "MIT License",
+            Url = new Uri("https://opensource.org/licenses/MIT")
+        }
+    });
+});
 
 var app = builder.Build();
 

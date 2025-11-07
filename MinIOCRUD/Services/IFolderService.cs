@@ -1,4 +1,4 @@
-﻿using MinIOCRUD.Dtos;
+﻿using MinIOCRUD.Dtos.Responses;
 using MinIOCRUD.Models;
 
 namespace MinIOCRUD.Services
