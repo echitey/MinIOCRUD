@@ -29,7 +29,6 @@
 - [Services and important implementation notes](#services-and-important-implementation-notes)
 - [File cleanup service](#file-cleanup-service)
 - [Testing](#testing)
-- [Troubleshooting & recovery notes](#troubleshooting--recovery-notes)
 - [Tech stack](#tech-stack)
 - [Recent cleanup & improvements](#recent-cleanup--improvements)
 - [License](#license)
